@@ -8,24 +8,46 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
-app.use(cors({ origin: 'http://localhost:5173', credentials: true })); // Vite default port
+const allowedOrigins = [
+  'http://localhost:5173', // Local dev
+  process.env.FRONTEND_URL, // Vercel deployed frontend variable
+  'https://signup-and-signin-4v9r.vercel.app', // Newly created Vercel frontend
+  'https://signup-and-signin-sandy.vercel.app' // Old Vercel URL just in case
+].filter(Boolean);
+
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV !== 'production') {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true
+}));
 app.use(express.json());
 app.use(cookieParser());
 
-// Database connection parameters
-const dbConfig = {
-  uri: process.env.DATABASE_URL
-};
+// Database connection pool for serverless environments
+const dbPool = mysql.createPool({
+  uri: process.env.DATABASE_URL,
+  waitForConnections: true,
+  connectionLimit: 10,
+  maxIdle: 10,
+  idleTimeout: 60000,
+  queueLimit: 0,
+  ssl: {
+    rejectUnauthorized: false
+  }
+});
 
-let dbConnection;
-
-const connectDB = async () => {
+const initializeDB = async () => {
   try {
-    dbConnection = await mysql.createConnection(dbConfig.uri);
+    const connection = await dbPool.getConnection();
     console.log('Connected to Aiven MySQL Database successfully.');
 
     // Initialize Database Schema if not exists
-    await dbConnection.query(`
+    await connection.query(`
       CREATE TABLE IF NOT EXISTS users (
         id INT AUTO_INCREMENT PRIMARY KEY,
         username VARCHAR(255) NOT NULL UNIQUE,
@@ -36,16 +58,17 @@ const connectDB = async () => {
       )
     `);
     console.log('Users table ensured.');
+    connection.release();
   } catch (error) {
     console.error('Database connection failed:', error.message);
   }
 };
 
-connectDB();
+initializeDB();
 
-// Middleware to inject dbConnection into requests
+// Middleware to inject dbPool into requests
 app.use((req, res, next) => {
-  req.db = dbConnection;
+  req.db = dbPool;
   next();
 });
 
@@ -57,6 +80,10 @@ app.get('/', (req, res) => {
   res.send('Premium SaaS Backend Running');
 });
 
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
+if (process.env.NODE_ENV !== 'production') {
+  app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+  });
+}
+
+module.exports = app;
