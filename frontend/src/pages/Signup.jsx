@@ -29,7 +29,7 @@ const Signup = () => {
 
         setLoading(true);
         try {
-            const response = await axios.post('http://localhost:5000/api/auth/register', {
+            const response = await axios.post('https://signup-and-signin-backend.vercel.app/api/auth/register', {
                 username: formData.username,
                 email: formData.email,
                 phone: formData.phone,
